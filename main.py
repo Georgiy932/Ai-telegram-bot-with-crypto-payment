@@ -251,7 +251,17 @@ async def startup_event():
         BotCommand("subscribe", "Подписка"),
     ])
 
-    asyncio.create_task(telegram_app.run_polling())
+    # --- Вместо run_polling ---
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling()
+
+@fastapi_app.on_event("shutdown")
+async def shutdown_event():
+    if telegram_app:
+        await telegram_app.updater.stop()
+        await telegram_app.stop()
+        await telegram_app.shutdown()
 
 
 # === FastAPI роуты ===
