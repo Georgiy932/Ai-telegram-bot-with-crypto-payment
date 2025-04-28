@@ -1,27 +1,25 @@
-import logging
 import asyncio
-import requests
-from datetime import datetime, timezone
-from fastapi import FastAPI
-from telegram import Update, BotCommand, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import (
-    Application,
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters,
-)
-from config import TELEGRAM_TOKEN, ROUTER_API_KEY
-from database import User, AsyncSessionLocal, init_db
-from payments import create_invoice
+import logging
+from datetime import datetime, timedelta, timezone
 
-# Настройка логов
-logging.basicConfig(level=logging.INFO)
+import httpx
+from fastapi import FastAPI, Request
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import Column, Integer, DateTime, BigInteger, func
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
-# === Константы ===
+# ======================== КОНФИГ ========================
+TELEGRAM_TOKEN = "7100808154:AAGGeC57S4T-_eXqpXowI-ZB-vv-ltqjSmY"
+ROUTER_API_KEY = "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"
+DB_URL = "postgresql+asyncpg://georgiy:hk0sqGETCp5kyOKmB2nkOZ8kRo5wNEYN@dpg-d060qa2li9vc73br3fj0-a/virtbot"
+NOWPAYMENTS_API_KEY = "BVVS1E5-A2X4H0X-N9S5YTD-EA9MVRS"
+NOWPAYMENTS_API_URL = "https://api.nowpayments.io/v1/invoice"
+WEBHOOK_URL = "https://bottg-sgjr.onrender.com/webhook"
+SUCCESS_URL = "https://t.me/HotAIGirrl_bot"
 MODEL = "deepseek/deepseek-chat-v3-0324"
+
 SYSTEM_PROMPT = (
     "Ты — соблазнительная, страстная, романтичная AI-подруга. "
     "Ты отвечаешь чувственно, эротично, нежно, поддерживаешь вирт и ролевые фантазии. "
@@ -42,6 +40,7 @@ RULES_TEXT = (
     "Я безотказна в фантазиях, но остаюсь виртуальной подругой — никаких реальных встреч, фото или действий вне чата. "
     "Всё только в твоём воображении... но от этого не менее горячо. 😈"
 )
+
 PLANS = {
     "daily": {"price": 5, "days": 1},
     "weekly": {"price": 12, "days": 7},
@@ -49,128 +48,120 @@ PLANS = {
     "yearly": {"price": 50, "days": 365},
 }
 
-# FastAPI-приложение
-fastapi_app = FastAPI()
+# ======================== БАЗА ДАННЫХ ========================
+engine = create_async_engine(DB_URL, echo=False)
+AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+Base = declarative_base()
 
-# Бот-приложение
-telegram_app: Application | None = None
+class User(Base):
+    __tablename__ = "users"
+    id = Column(BigInteger, primary_key=True)
+    messages_today = Column(Integer, default=0)
+    last_message_date = Column(DateTime, default=func.now())
+    subscription_until = Column(DateTime, nullable=True)
 
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
-# === Обработчики команд ===
+# ======================== ПЛАТЕЖИ ========================
+async def create_invoice(user_id: int, amount: float, plan_key: str):
+    payload = {
+        "price_amount": amount,
+        "price_currency": "usd",
+        "order_id": str(user_id),
+        "order_description": plan_key,
+        "ipn_callback_url": WEBHOOK_URL,
+        "success_url": SUCCESS_URL,
+    }
+    headers = {
+        "x-api-key": NOWPAYMENTS_API_KEY,
+        "Content-Type": "application/json"
+    }
+    async with httpx.AsyncClient() as client:
+        res = await client.post(NOWPAYMENTS_API_URL, json=payload, headers=headers)
+    data = res.json()
+    if "invoice_url" not in data:
+        raise ValueError(f"Ошибка создания инвойса: {data}")
+    return data["invoice_url"]
+
+# ======================== CHAT API ========================
+async def get_model_response(history):
+    headers = {
+        "Authorization": f"Bearer {ROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": MODEL,
+        "messages": history,
+        "max_tokens": 600
+    }
+    async with httpx.AsyncClient() as client:
+        res = await client.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
+    if res.status_code == 200:
+        return res.json()["choices"][0]["message"]["content"]
+    else:
+        return "Что-то пошло не так... 😢"
+
+# ======================== БОТ ========================
+logging.basicConfig(level=logging.INFO)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
     await update.message.reply_text(RULES_TEXT)
     await update.message.reply_text("Привет, я твоя виртуальная подруга 💋 Напиши мне что-нибудь...")
 
-
 async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(RULES_TEXT)
-
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
     await update.message.reply_text("🧠 История очищена. Начнём заново...")
 
-
-async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = (
-        "💋 Хочешь порадовать меня? Вот мои кошельки, ты можешь закинуть донатик — и я стану ещё более нежной 😘\n\n"
-        "💸 *USDT (TRC20)*: `TXYZ123abc456def789ghijk`\n"
-        "🪙 *BTC*: `bc1qexampleaddressxyz4567`\n"
-        "🔷 *TON*: `UQExampleTonWalletAddress123...`\n\n"
-        "Если что-то скинешь — обязательно напиши, я тебя горячо отблагодарю 😈"
-    )
-    await update.message.reply_text(message, parse_mode="Markdown")
-
-
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or context.args[0] not in PLANS:
-        keyboard = [
-            [InlineKeyboardButton("💵 1 день — $5", callback_data="subscribe_daily")],
-            [InlineKeyboardButton("💵 7 дней — $12", callback_data="subscribe_weekly")],
-            [InlineKeyboardButton("💵 30 дней — $30", callback_data="subscribe_monthly")],
-            [InlineKeyboardButton("💵 365 дней — $50", callback_data="subscribe_yearly")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            "👉 Выбери план подписки ниже, и я пришлю ссылку на оплату 💋",
-            reply_markup=reply_markup
-        )
-        return
-
-    plan_key = context.args[0]
-    plan = PLANS[plan_key]
-
-    invoice_url, _ = await create_invoice(
-        user_id=update.effective_user.id,
-        amount=plan["price"],
-        plan_key=plan_key,
-    )
-
-    keyboard = [[InlineKeyboardButton("💳 Оплатить подписку", url=invoice_url)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "💰 Нажми на кнопку ниже, чтобы оплатить подписку:",
-        reply_markup=reply_markup
-    )
-
+    keyboard = [
+        [InlineKeyboardButton("💵 1 день — $5", callback_data="subscribe_daily")],
+        [InlineKeyboardButton("💵 7 дней — $12", callback_data="subscribe_weekly")],
+        [InlineKeyboardButton("💵 30 дней — $30", callback_data="subscribe_monthly")],
+        [InlineKeyboardButton("💵 365 дней — $50", callback_data="subscribe_yearly")],
+    ]
+    await update.message.reply_text("👉 Выбери план подписки ниже:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_subscription_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     plan_map = {
         "subscribe_daily": "daily",
         "subscribe_weekly": "weekly",
         "subscribe_monthly": "monthly",
         "subscribe_yearly": "yearly",
     }
-
     plan_key = plan_map.get(query.data)
-    if not plan_key:
-        await query.edit_message_text("Ошибка при выборе подписки.")
-        return
-
     plan = PLANS[plan_key]
-    invoice_url, _ = await create_invoice(
-        user_id=query.from_user.id,
-        amount=plan["price"],
-        plan_key=plan_key,
-    )
 
+    invoice_url = await create_invoice(query.from_user.id, plan["price"], plan_key)
     keyboard = [[InlineKeyboardButton("💳 Оплатить подписку", url=invoice_url)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text="💰 Нажми на кнопку ниже, чтобы оплатить подписку:",
-        reply_markup=reply_markup
+        text="💰 Нажми на кнопку ниже для оплаты:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-
-# === Сообщения ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text.lower()
+    user_input = update.message.text
     user_id = update.effective_user.id
-
-    image_triggers = ["покажи", "нарисуй", "пришли фото", "пришли картинку", "сделай изображение", "генерируй фото", "покажи себя", "кинь фотку"]
-    if any(trigger in user_input for trigger in image_triggers):
-        await update.message.reply_text(
-            "Ой, у меня нет камеры 😘 Но я могу описать себя настолько ярко, что ты сразу представишь меня. "
-            "Может скинешь мне денег чтоб я купила себе телефончик?"
-        )
-        return
 
     async with AsyncSessionLocal() as session:
         user = await session.get(User, user_id)
         now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         if not user:
-            user = User(user_id=user_id, messages_today=1, last_message_date=now)
+            user = User(id=user_id, messages_today=0, last_message_date=now)
             session.add(user)
             await session.commit()
-        elif not user.last_message_date or user.last_message_date.date() < now.date():
+        elif user.last_message_date.date() < now.date():
             user.messages_today = 0
             user.last_message_date = now
             await session.commit()
@@ -178,19 +169,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_active_subscription = user.subscription_until and user.subscription_until > now
 
         if not has_active_subscription and user.messages_today >= 10:
-            keyboard = [
-                [InlineKeyboardButton("💵 1 день — $5", callback_data="subscribe_daily")],
-                [InlineKeyboardButton("💵 7 дней — $12", callback_data="subscribe_weekly")],
-                [InlineKeyboardButton("💵 30 дней — $30", callback_data="subscribe_monthly")],
-                [InlineKeyboardButton("💵 365 дней — $50", callback_data="subscribe_yearly")],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.message.reply_text(
-                "💬 Ты исчерпал лимит из 10 сообщений.\n"
-                "👉 Выбери один из вариантов подписки ниже, чтобы продолжить:",
-                reply_markup=reply_markup
-            )
+            await subscribe(update, context)
             return
 
         user.messages_today += 1
@@ -203,71 +182,79 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["chat_history"].append({"role": "user", "content": user_input})
     history = context.user_data["chat_history"][-100:]
 
-    headers = {
-        "Authorization": f"Bearer {ROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    reply = await get_model_response(history)
+    context.user_data["chat_history"].append({"role": "assistant", "content": reply})
+    await update.message.reply_text(reply)
 
-    payload = {
-        "model": MODEL,
-        "messages": history,
-        "max_tokens": 600
-    }
+async def create_bot():
+    bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    try:
-        response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
-        if response.status_code == 200:
-            reply = response.json()["choices"][0]["message"]["content"]
-            context.user_data["chat_history"].append({"role": "assistant", "content": reply})
-        else:
-            reply = "Что-то пошло не так... 😢"
-        await update.message.reply_text(reply)
-    except Exception as e:
-        logging.error(f"Ошибка при отправке: {e}")
-        await update.message.reply_text("Ошибка при ответе 😥")
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(CommandHandler("rules", rules))
+    bot_app.add_handler(CommandHandler("reset", reset))
+    bot_app.add_handler(CommandHandler("subscribe", subscribe))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    bot_app.add_handler(CallbackQueryHandler(handle_subscription_button))
 
-
-# === Запуск бота при старте сервера ===
-@fastapi_app.on_event("startup")
-async def startup_event():
-    global telegram_app
-    await init_db()
-
-    telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(CommandHandler("rules", rules))
-    telegram_app.add_handler(CommandHandler("reset", reset))
-    telegram_app.add_handler(CommandHandler("donate", donate))
-    telegram_app.add_handler(CommandHandler("subscribe", subscribe))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    telegram_app.add_handler(CallbackQueryHandler(handle_subscription_button))
-
-    await telegram_app.bot.set_my_commands([
+    await bot_app.bot.set_my_commands([
         BotCommand("start", "Начать"),
         BotCommand("rules", "Правила"),
         BotCommand("reset", "Сброс"),
-        BotCommand("donate", "Донат"),
         BotCommand("subscribe", "Подписка"),
     ])
 
-    # --- Вместо run_polling ---
-    await telegram_app.initialize()
-    await telegram_app.start()
-    await telegram_app.updater.start_polling()
+    return bot_app
 
-@fastapi_app.on_event("shutdown")
+# ======================== FASTAPI ========================
+app = FastAPI()
+bot_app = None
+
+@app.on_event("startup")
+async def startup_event():
+    global bot_app
+    await init_db()
+    bot_app = await create_bot()
+
+    asyncio.create_task(bot_app.initialize())
+    asyncio.create_task(bot_app.start())
+    asyncio.create_task(bot_app.updater.start_polling())
+
+@app.on_event("shutdown")
 async def shutdown_event():
-    if telegram_app:
-        await telegram_app.updater.stop()
-        await telegram_app.stop()
-        await telegram_app.shutdown()
+    if bot_app:
+        await bot_app.updater.stop()
+        await bot_app.stop()
+        await bot_app.shutdown()
 
-
-# === FastAPI роуты ===
-@fastapi_app.get("/")
+@app.get("/")
 async def root():
-    return {"message": "Bot is running!"}
+    return {"message": "Бот работает! 🔥"}
+
+@app.post("/webhook")
+async def payment_webhook(request: Request):
+    data = await request.json()
+
+    if data.get("payment_status") == "finished":
+        user_id = int(data.get("order_id"))
+        plan_title = data.get("order_description", "").split()[-1]
+        days = {
+            "daily": 1,
+            "weekly": 7,
+            "monthly": 30,
+            "yearly": 365
+        }.get(plan_title, 0)
+
+        async with AsyncSessionLocal() as session:
+            user = await session.get(User, user_id)
+            if not user:
+                user = User(id=user_id)
+
+            user.subscription_until = datetime.utcnow() + timedelta(days=days)
+            session.add(user)
+            await session.commit()
+
+    return {"status": "ok"}
+
 
 
 
