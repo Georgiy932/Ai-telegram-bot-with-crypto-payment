@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import Column, Integer, DateTime, BigInteger, func
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from contextlib import asynccontextmanager
 
 # ======================== КОНФИГ ========================
 TELEGRAM_TOKEN = "7100808154:AAGGeC57S4T-_eXqpXowI-ZB-vv-ltqjSmY"
@@ -209,22 +210,6 @@ async def create_bot():
 app = FastAPI()
 bot_app = None
 
-@app.on_event("startup")
-async def startup_event():
-    global bot_app
-    await init_db()
-    bot_app = await create_bot()
-
-    asyncio.create_task(bot_app.initialize())
-    asyncio.create_task(bot_app.start())
-    asyncio.create_task(bot_app.updater.start_polling())
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    if bot_app:
-        await bot_app.updater.stop()
-        await bot_app.stop()
-        await bot_app.shutdown()
 
 @app.get("/")
 async def root():
@@ -255,7 +240,29 @@ async def payment_webhook(request: Request):
 
     return {"status": "ok"}
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global bot_app
 
+    await init_db()
+    bot_app = await create_bot()
+
+    await bot_app.initialize()
+    await bot_app.start()
+    await bot_app.updater.start_polling()
+
+    print("✅ Бот запущен!")
+
+    yield  # <-- тут FastAPI будет работать
+
+    if bot_app:
+        await bot_app.updater.stop()
+        await bot_app.stop()
+        await bot_app.shutdown()
+        print("🛑 Бот остановлен!")
+
+# Применяем lifespan при создании FastAPI
+app = FastAPI(lifespan=lifespan)
 
 
 
