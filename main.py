@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 # ======================== КОНФИГ ========================
 TELEGRAM_TOKEN = "7100808154:AAGGeC57S4T-_eXqpXowI-ZB-vv-ltqjSmY"
 ROUTER_API_KEY = "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"
-DB_URL = "postgresql+asyncpg://georgiy:19A0DjfgzwFazftwluXKKFaZU60jeY3T@dpg-d07spb2dbo4c73bs7l4g-a:5432/virtbot"
+DB_URL = "postgresql+asyncpg://georgiy:19A0DjfgzwFazftwluXKKFaZU60jeY3T@dpg-d07spb2dbo4c73bs7l4g-a.oregon-postgres.render.com:5432/virtbot_dedu"
 NOWPAYMENTS_API_KEY = "BVVS1E5-A2X4H0X-N9S5YTD-EA9MVRS"
 NOWPAYMENTS_API_URL = "https://api.nowpayments.io/v1/invoice"
 WEBHOOK_URL = "https://bottg-sgjr.onrender.com/webhook"
