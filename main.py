@@ -216,6 +216,13 @@ async def root():
     return {"message": "Бот работает! 🔥"}
 
 @app.post("/webhook")
+async def telegram_webhook(request: Request):
+    data = await request.body()
+    await bot_app.update_queue.put(Update.de_json(data.decode("utf-8"), bot_app.bot))
+    return {"status": "ok"}
+
+
+@app.post("/nowpayments-webhook")
 async def payment_webhook(request: Request):
     data = await request.json()
 
@@ -249,17 +256,17 @@ async def lifespan(app: FastAPI):
 
     await bot_app.initialize()
     await bot_app.start()
-    await bot_app.updater.start_polling()
+    await bot_app.bot.set_webhook(WEBHOOK_URL)
 
     print("✅ Бот запущен!")
 
-    yield  # <-- тут FastAPI будет работать
+    yield
 
     if bot_app:
-        await bot_app.updater.stop()
         await bot_app.stop()
         await bot_app.shutdown()
         print("🛑 Бот остановлен!")
+
 
 # Применяем lifespan при создании FastAPI
 app = FastAPI(lifespan=lifespan)
