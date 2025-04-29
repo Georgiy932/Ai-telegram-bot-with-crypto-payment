@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-
+import json
 import httpx
 from fastapi import FastAPI, Request
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -240,8 +240,8 @@ async def root():
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
-    data = await request.body()
-    await bot_app.update_queue.put(Update.de_json(data.decode("utf-8"), bot_app.bot))
+    data = await request.json()
+    await bot_app.update_queue.put(Update.de_json(data, bot_app.bot))
     return {"status": "ok"}
 
 @app.post("/nowpayments-webhook")
