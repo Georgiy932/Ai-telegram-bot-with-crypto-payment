@@ -207,9 +207,32 @@ async def create_bot():
     return bot_app
 
 # ======================== FASTAPI ========================
-app = FastAPI()
-bot_app = None
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global bot_app
 
+    await init_db()
+    bot_app = await create_bot()
+
+    await bot_app.initialize()
+    await bot_app.start()
+    await bot_app.bot.set_webhook(WEBHOOK_URL)
+
+    print("✅ Бот запущен!")
+
+    yield
+
+    if bot_app:
+        await bot_app.stop()
+        await bot_app.shutdown()
+        print("🛑 Бот остановлен!")
+
+
+
+bot_app = None
+# ======================== FASTAPI ========================
+
+app = FastAPI(lifespan=lifespan)  # Перенеси СЮДА
 
 @app.get("/")
 async def root():
@@ -220,7 +243,6 @@ async def telegram_webhook(request: Request):
     data = await request.body()
     await bot_app.update_queue.put(Update.de_json(data.decode("utf-8"), bot_app.bot))
     return {"status": "ok"}
-
 
 @app.post("/nowpayments-webhook")
 async def payment_webhook(request: Request):
@@ -247,29 +269,10 @@ async def payment_webhook(request: Request):
 
     return {"status": "ok"}
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global bot_app
-
-    await init_db()
-    bot_app = await create_bot()
-
-    await bot_app.initialize()
-    await bot_app.start()
-    await bot_app.bot.set_webhook(WEBHOOK_URL)
-
-    print("✅ Бот запущен!")
-
-    yield
-
-    if bot_app:
-        await bot_app.stop()
-        await bot_app.shutdown()
-        print("🛑 Бот остановлен!")
 
 
-# Применяем lifespan при создании FastAPI
-app = FastAPI(lifespan=lifespan)
+
+
 
 
 
