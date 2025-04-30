@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()  # Загружает переменные из .env файла
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ROUTER_API_KEY = os.getenv("ROUTER_API_KEY")
 NOWPAYMENTS_API_KEY = os.getenv("NOWPAYMENTS_API_KEY")
@@ -24,6 +23,8 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 SUCCESS_URL = os.getenv("SUCCESS_URL")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 MODEL = "deepseek/deepseek-chat-v3-0324"
+print("DB_URL:", DB_URL)
+
 
 SYSTEM_PROMPT = (
     "Ты — соблазнительная, страстная, романтичная AI-подруга. "
