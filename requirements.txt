@@ -6,3 +6,5 @@ requests==2.31.0
 nest_asyncio==1.6.0
 fastapi
 uvicorn
+python-dotenv==1.0.1
+
