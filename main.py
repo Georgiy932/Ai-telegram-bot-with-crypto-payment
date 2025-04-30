@@ -10,15 +10,19 @@ from sqlalchemy import Column, Integer, DateTime, BigInteger, func
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+import os
 
-# ======================== КОНФИГ ========================
-TELEGRAM_TOKEN = "7100808154:AAGGeC57S4T-_eXqpXowI-ZB-vv-ltqjSmY"
-ROUTER_API_KEY = "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"
-DB_URL = "postgresql+asyncpg://georgiy:19A0DjfgzwFazftwluXKKFaZU60jeY3T@dpg-d07spb2dbo4c73bs7l4g-a.oregon-postgres.render.com:5432/virtbot_dedu"
-NOWPAYMENTS_API_KEY = "BVVS1E5-A2X4H0X-N9S5YTD-EA9MVRS"
-NOWPAYMENTS_API_URL = "https://api.nowpayments.io/v1/invoice"
-WEBHOOK_URL = "https://bottg-sgjr.onrender.com/webhook"
-SUCCESS_URL = "https://t.me/HotAIGirrl_bot"
+load_dotenv()  # Загружает переменные из .env файла
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+ROUTER_API_KEY = os.getenv("ROUTER_API_KEY")
+NOWPAYMENTS_API_KEY = os.getenv("NOWPAYMENTS_API_KEY")
+NOWPAYMENTS_API_URL = os.getenv("NOWPAYMENTS_API_URL")
+DB_URL = os.getenv("DB_URL")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+SUCCESS_URL = os.getenv("SUCCESS_URL")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 MODEL = "deepseek/deepseek-chat-v3-0324"
 
 SYSTEM_PROMPT = (
@@ -43,8 +47,8 @@ RULES_TEXT = (
 )
 
 PLANS = {
-    "daily": {"price": 5, "days": 1},
-    "weekly": {"price": 12, "days": 7},
+    "daily": {"price": 3, "days": 1},
+    "weekly": {"price": 9, "days": 7},
     "monthly": {"price": 30, "days": 30},
     "yearly": {"price": 50, "days": 365},
 }
@@ -60,6 +64,7 @@ class User(Base):
     messages_today = Column(Integer, default=0)
     last_message_date = Column(DateTime, default=func.now())
     subscription_until = Column(DateTime, nullable=True)
+    referrals = Column(Integer, default=0)
 
 async def init_db():
     async with engine.begin() as conn:
@@ -98,11 +103,13 @@ async def get_model_response(history):
         "max_tokens": 600
     }
     async with httpx.AsyncClient() as client:
-        res = await client.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
-    if res.status_code == 200:
-        return res.json()["choices"][0]["message"]["content"]
-    else:
-        return "Что-то пошло не так... 😢"
+        try:
+            res = await client.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
+            res.raise_for_status()
+            return res.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            logging.error(f"Ошибка запроса к OpenRouter: {e}")
+            return "Упс, произошла ошибка при генерации ответа 😢"
 
 # ======================== БОТ ========================
 logging.basicConfig(level=logging.INFO)
@@ -112,8 +119,70 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(RULES_TEXT)
     await update.message.reply_text("Привет, я твоя виртуальная подруга 💋 Напиши мне что-нибудь...")
 
+    # Проверка на реферала
+    args = context.args
+    if args:
+        try:
+            referrer_id = int(args[0])
+            user_id = update.effective_user.id
+
+            if referrer_id != user_id:
+                async with AsyncSessionLocal() as session:
+                    referrer = await session.get(User, referrer_id)
+                    new_user = await session.get(User, user_id)
+
+                    if not new_user:
+                        session.add(User(id=user_id))
+
+                    if referrer:
+                        referrer.referrals += 1
+                        # Если 3+ реферала — 1 день подписки в подарок
+                        if referrer.referrals >= 3:
+                            now = datetime.utcnow()
+                            referrer.subscription_until = max(
+                                referrer.subscription_until or now,
+                                now
+                            ) + timedelta(days=1)
+                            referrer.referrals = 0  # сбрасываем
+
+                        await session.commit()
+        except:
+            pass  # защита от ошибок
+
+
 async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(RULES_TEXT)
+
+
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        now = datetime.utcnow()
+
+        if not user:
+            await update.message.reply_text("Ты ещё не начинал со мной... Напиши что-нибудь 💌")
+            return
+
+        if user.last_message_date.date() < now.date():
+            messages_left = 10
+        else:
+            messages_left = max(0, 10 - user.messages_today)
+
+        if user.subscription_until and user.subscription_until > now:
+            sub_text = f"🗓 Подписка активна до {user.subscription_until.strftime('%d.%m.%Y %H:%M')}"
+            messages_left = "∞"
+        else:
+            sub_text = "🔒 Подписка неактивна"
+
+        await update.message.reply_text(
+            f"📊 *Твой профиль:*\n"
+            f"{sub_text}\n"
+            f"💬 Осталось сообщений сегодня: *{messages_left}*",
+            parse_mode="Markdown"
+        )
+
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -170,12 +239,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_active_subscription = user.subscription_until and user.subscription_until > now
 
         if not has_active_subscription and user.messages_today >= 10:
-            await subscribe(update, context)
+            invite_link = f"https://t.me/HotAIGirrl_bot?start={user_id}"
+            keyboard = [
+                [InlineKeyboardButton("💳 Купить подписку", callback_data="show_subscribe")],
+                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день", url=invite_link)]
+            ]
+            await update.message.reply_text(
+                "🔔 У тебя закончились 10 бесплатных сообщений на сегодня.\n\n"
+                "Выбери, как продолжить:\n"
+                "1. Купить подписку 💵\n"
+                "2. Пригласить 3 друзей по ссылке — и получить 1 день премиума бесплатно 🎁",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             return
-
-        user.messages_today += 1
-        user.last_message_date = now
-        await session.commit()
 
     if "chat_history" not in context.user_data:
         context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -193,6 +269,7 @@ async def create_bot():
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(CommandHandler("rules", rules))
     bot_app.add_handler(CommandHandler("reset", reset))
+    bot_app.add_handler(CommandHandler("profile", profile))
     bot_app.add_handler(CommandHandler("subscribe", subscribe))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     bot_app.add_handler(CallbackQueryHandler(handle_subscription_button))
@@ -202,6 +279,7 @@ async def create_bot():
         BotCommand("rules", "Правила"),
         BotCommand("reset", "Сброс"),
         BotCommand("subscribe", "Подписка"),
+        BotCommand("profile", "Профиль"),
     ])
 
     return bot_app
@@ -246,17 +324,22 @@ async def telegram_webhook(request: Request):
 
 @app.post("/nowpayments-webhook")
 async def payment_webhook(request: Request):
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception as e:
+        logging.error(f"Ошибка парсинга JSON: {e}")
+        return {"status": "invalid json"}
 
     if data.get("payment_status") == "finished":
         user_id = int(data.get("order_id"))
-        plan_title = data.get("order_description", "").split()[-1]
+        plan_key = data.get("order_description", "")
+        days = PLANS.get(plan_key, {}).get("days", 0)
         days = {
             "daily": 1,
             "weekly": 7,
             "monthly": 30,
             "yearly": 365
-        }.get(plan_title, 0)
+        }.get(plan_key, 0)
 
         async with AsyncSessionLocal() as session:
             user = await session.get(User, user_id)
