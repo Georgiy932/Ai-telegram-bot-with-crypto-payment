@@ -228,7 +228,12 @@ async def handle_subscription_button(update: Update, context: ContextTypes.DEFAU
         "subscribe_monthly": "monthly",
         "subscribe_yearly": "yearly",
     }
+
     plan_key = plan_map.get(query.data)
+    if not plan_key or plan_key not in PLANS:
+        await query.message.reply_text("Ошибка: выбранный тариф не найден.")
+        return
+
     plan = PLANS[plan_key]
 
     invoice_url = await create_invoice(query.from_user.id, plan["price"], plan_key)
@@ -260,12 +265,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await session.commit()
 
         has_active_subscription = user.subscription_until and user.subscription_until > now
+        invite_link = f"https://t.me/HotAIGirrl_bot?start={user_id}"
 
         if not has_active_subscription and user.messages_today >= 10:
             keyboard = [
-                [InlineKeyboardButton("💳 Купить подписку", callback_data="show_subscribe")],
-                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день",
-                                      url=f"https://t.me/HotAIGirrl_bot?start={user_id}")]
+                [InlineKeyboardButton("💳 Купить подписку", callback_data="subscribe_daily")],
+                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день", url=invite_link)],
             ]
 
             await update.message.reply_text(
@@ -275,6 +280,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "2. Пригласить 3 друзей по ссылке — и получить 1 день премиума бесплатно 🎁",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+
             return
 
         # Увеличиваем счётчик сообщений, если пользователь без подписки
@@ -305,7 +311,6 @@ async def create_bot():
     bot_app.add_handler(CommandHandler("profile", profile))
     bot_app.add_handler(CommandHandler("subscribe", subscribe))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    bot_app.add_handler(CallbackQueryHandler(handle_subscription_button))
     bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
     bot_app.add_handler(CallbackQueryHandler(subscribe, pattern=r"^show_subscribe$"))
 
