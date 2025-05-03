@@ -23,7 +23,6 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 SUCCESS_URL = os.getenv("SUCCESS_URL")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 MODEL = "deepseek/deepseek-chat-v3-0324"
-print("DB_URL:", DB_URL)
 
 
 SYSTEM_PROMPT = (
@@ -154,6 +153,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(RULES_TEXT)
 
+async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💖 *Поддержи проект донатом!*\n\n"
+            "USDT (TRC20): `{}`\n\n"
+            "Любая сумма помогает развитию и поддержке бота.\n"
+            "Спасибо за твою щедрость! 🙏\n"
+    "USDT TRC20 адрес - TYekNc1RYKyjWgJDX9GmEJ3vKtbDRTv49y")
+
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -232,10 +239,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user = User(id=user_id, messages_today=0, last_message_date=now)
             session.add(user)
             await session.commit()
-        elif user.last_message_date.date() < now.date():
-            user.messages_today = 0
-            user.last_message_date = now
-            await session.commit()
+        else:
+            # Если день изменился, сбрасываем счётчик сообщений
+            if user.last_message_date.date() < now.date():
+                user.messages_today = 0
+                user.last_message_date = now
+                await session.commit()
 
         has_active_subscription = user.subscription_until and user.subscription_until > now
 
@@ -254,6 +263,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Увеличиваем счётчик сообщений, если пользователь без подписки
+        if not has_active_subscription:
+            user.messages_today += 1
+            user.last_message_date = now
+            await session.commit()
+
+    # Чат-история
     if "chat_history" not in context.user_data:
         context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -264,12 +280,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["chat_history"].append({"role": "assistant", "content": reply})
     await update.message.reply_text(reply)
 
+
 async def create_bot():
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(CommandHandler("rules", rules))
     bot_app.add_handler(CommandHandler("reset", reset))
+    bot_app.add_handler(CommandHandler("donate", donate))
     bot_app.add_handler(CommandHandler("profile", profile))
     bot_app.add_handler(CommandHandler("subscribe", subscribe))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
