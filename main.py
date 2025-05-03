@@ -170,10 +170,9 @@ async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "💖 *Поддержи проект донатом!*\n\n"
-            "USDT (TRC20): `{}`\n\n"
+            "USDT (TRC20): TYekNc1RYKyjWgJDX9GmEJ3vKtbDRTv49y \n\n"
             "Любая сумма помогает развитию и поддержке бота.\n"
-            "Спасибо за твою щедрость! 🙏\n"
-    "USDT TRC20 адрес - TYekNc1RYKyjWgJDX9GmEJ3vKtbDRTv49y")
+            "Спасибо за твою щедрость! 🙏")
 
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,11 +262,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_active_subscription = user.subscription_until and user.subscription_until > now
 
         if not has_active_subscription and user.messages_today >= 10:
-            invite_link = f"https://t.me/HotAIGirrl_bot?start={user_id}"
             keyboard = [
                 [InlineKeyboardButton("💳 Купить подписку", callback_data="show_subscribe")],
-                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день", url=invite_link)]
+                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день",
+                                      url=f"https://t.me/HotAIGirrl_bot?start={user_id}")]
             ]
+
             await update.message.reply_text(
                 "🔔 У тебя закончились 10 бесплатных сообщений на сегодня.\n\n"
                 "Выбери, как продолжить:\n"
@@ -306,6 +306,8 @@ async def create_bot():
     bot_app.add_handler(CommandHandler("subscribe", subscribe))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     bot_app.add_handler(CallbackQueryHandler(handle_subscription_button))
+    bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
+    bot_app.add_handler(CallbackQueryHandler(subscribe, pattern=r"^show_subscribe$"))
 
     await bot_app.bot.set_my_commands([
         BotCommand("start", "Начать"),
