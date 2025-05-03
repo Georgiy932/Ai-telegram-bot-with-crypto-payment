@@ -115,7 +115,9 @@ async def get_model_response(history):
 logging.basicConfig(level=logging.INFO)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
+
     await update.message.reply_text(RULES_TEXT)
     await update.message.reply_text("Привет, я твоя виртуальная подруга 💋 Напиши мне что-нибудь...")
 
@@ -124,8 +126,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args:
         try:
             referrer_id = int(args[0])
-            user_id = update.effective_user.id
-
             if referrer_id != user_id:
                 async with AsyncSessionLocal() as session:
                     referrer = await session.get(User, referrer_id)
@@ -136,18 +136,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     if referrer:
                         referrer.referrals += 1
-                        # Если 3+ реферала — 1 день подписки в подарок
+                        message = f"🎉 Тебя пригласил пользователь {referrer_id}!\n"
                         if referrer.referrals >= 3:
                             now = datetime.utcnow()
                             referrer.subscription_until = max(
                                 referrer.subscription_until or now,
                                 now
                             ) + timedelta(days=1)
-                            referrer.referrals = 0  # сбрасываем
+                            referrer.referrals = 0
+                            message += "🎁 Он пригласил 3 друзей и получил 1 день подписки!"
+                        else:
+                            message += f"👥 Он пригласил уже {referrer.referrals}/3 друзей."
 
                         await session.commit()
-        except:
-            pass  # защита от ошибок
+
+                        # Уведомление рефереру
+                        try:
+                            await context.bot.send_message(
+                                chat_id=referrer_id,
+                                text=message
+                            )
+                        except Exception:
+                            pass  # если бот не может написать пользователю — игнорируем
+
+        except Exception as e:
+            print(f"Ошибка при обработке реферала: {e}")
+
 
 
 async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -198,8 +212,8 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("💵 1 день — $5", callback_data="subscribe_daily")],
-        [InlineKeyboardButton("💵 7 дней — $12", callback_data="subscribe_weekly")],
+        [InlineKeyboardButton("💵 1 день — $3", callback_data="subscribe_daily")],
+        [InlineKeyboardButton("💵 7 дней — $9", callback_data="subscribe_weekly")],
         [InlineKeyboardButton("💵 30 дней — $30", callback_data="subscribe_monthly")],
         [InlineKeyboardButton("💵 365 дней — $50", callback_data="subscribe_yearly")],
     ]
@@ -297,6 +311,7 @@ async def create_bot():
         BotCommand("start", "Начать"),
         BotCommand("rules", "Правила"),
         BotCommand("reset", "Сброс"),
+        BotCommand("donate", "Поддержать проект"),
         BotCommand("subscribe", "Подписка"),
         BotCommand("profile", "Профиль"),
     ])
