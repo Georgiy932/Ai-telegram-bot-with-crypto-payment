@@ -114,6 +114,18 @@ async def get_model_response(history):
 # ======================== БОТ ========================
 logging.basicConfig(level=logging.INFO)
 
+
+
+async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(RULES_TEXT)
+
+async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💖 *Поддержи проект донатом!*\n\n"
+            "USDT (TRC20): TYekNc1RYKyjWgJDX9GmEJ3vKtbDRTv49y \n\n"
+            "Любая сумма помогает развитию и поддержке бота.\n"
+            "Спасибо за твою щедрость! 🙏")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -129,17 +141,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.warning(f"Ошибка при обработке реферала: {e}")
 
-
-
-async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(RULES_TEXT)
-
-async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "💖 *Поддержи проект донатом!*\n\n"
-            "USDT (TRC20): TYekNc1RYKyjWgJDX9GmEJ3vKtbDRTv49y \n\n"
-            "Любая сумма помогает развитию и поддержке бота.\n"
-            "Спасибо за твою щедрость! 🙏")
 
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -236,6 +237,44 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_subscription_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "subscribe_daily":
+        # Показываем список тарифов
+        keyboard = [
+            [InlineKeyboardButton("💵 $3 — 1 день", callback_data="plan_1d")],
+            [InlineKeyboardButton("💸 $12 — 7 дней", callback_data="plan_7d")],
+            [InlineKeyboardButton("💰 $30 — 30 дней", callback_data="plan_30d")],
+            [InlineKeyboardButton("🏆 $50 — 365 дней", callback_data="plan_365d")],
+        ]
+        await query.message.reply_text(
+            "💳 Выбери подходящий план подписки:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    elif query.data.startswith("plan_"):
+        duration_map = {
+            "plan_1d": ("1 день", 5),
+            "plan_7d": ("7 дней", 12),
+            "plan_30d": ("30 дней", 30),
+            "plan_365d": ("365 дней", 50),
+        }
+        plan_key = query.data
+        label, amount = duration_map.get(plan_key, ("1 день", 5))
+
+        try:
+            invoice_url = await create_invoice(user_id=query.from_user.id, amount=amount, plan_key=plan_key)
+            await query.message.reply_text(
+                f"✅ План: {label}\n💵 Стоимость: ${amount}\n\n"
+                f"🔗 Перейди по ссылке для оплаты:\n{invoice_url}"
+            )
+        except Exception as e:
+            await query.message.reply_text(f"❌ Ошибка при создании платежа: {e}")
+
+    query = update.callback_query
+    await query.answer()
+
 
     plan_map = {
         "subscribe_daily": "daily",
@@ -285,7 +324,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not has_active_subscription and user.messages_today >= 10:
             keyboard = [
                 [InlineKeyboardButton("💳 Купить подписку", callback_data="subscribe_daily")],
-                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день", url=invite_link)],
+                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день", callback_data="get_invite_link")],
             ]
 
             await update.message.reply_text(
