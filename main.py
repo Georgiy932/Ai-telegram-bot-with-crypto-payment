@@ -234,6 +234,24 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("Выбери план подписки👇:", reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def handle_invite_friends(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    invite_link = f"https://t.me/HotAIGirrl_bot?start={user_id}"
+    # Вы можете достать текущее число приглашённых из БД
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        count = user.referrals if user else 0
+
+    await query.message.reply_text(
+        f"📨 Приглашай друзей по этой ссылке:\n\n"
+        f"{invite_link}\n\n"
+        f"🎁 За 3 приглашённых ты получаешь 1 день подписки.\n"
+        f"👥 Приглашено: {count}/3"
+    )
+
+
 async def handle_subscription_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -252,22 +270,6 @@ async def handle_subscription_button(update: Update, context: ContextTypes.DEFAU
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
-
-    elif query.data == "invite_friends":
-        user_id = query.from_user.id
-        invite_link = f"https://t.me/HotAIGirrl_bot?start={user_id}"
-        async with AsyncSessionLocal() as session:
-            user = await session.get(User, user_id)
-            count = user.referrals if user else 0
-
-        await query.message.reply_text(
-            f"📨 Приглашай друзей по этой ссылке:\n\n"
-            f"{invite_link}\n\n"
-            f"🎁 За 3 приглашённых ты получаешь 1 день подписки.\n"
-            f"👥 Приглашено: {count}/3"
-        )
-        return
-
 
     elif query.data.startswith("plan_"):
         duration_map = {
@@ -379,11 +381,18 @@ async def create_bot():
     bot_app.add_handler(CommandHandler("reset", reset))
     bot_app.add_handler(CommandHandler("donate", donate))
     bot_app.add_handler(CommandHandler("profile", profile))
-    bot_app.add_handler(CommandHandler("invite", invite))
+    bot_app.add_handler(CommandHandler("invite", handle_invite_friends))
     bot_app.add_handler(CommandHandler("subscribe", subscribe))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
     bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
     bot_app.add_handler(CallbackQueryHandler(subscribe, pattern=r"^show_subscribe$"))
+    bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
+    bot_app.add_handler(CallbackQueryHandler(handle_invite_friends, pattern=r"^invite_friends$"))
+
+
+
+
 
     await bot_app.bot.set_my_commands([
         BotCommand("start", "Начать"),
