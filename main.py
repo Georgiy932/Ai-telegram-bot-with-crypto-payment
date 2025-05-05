@@ -203,14 +203,14 @@ async def process_referral(user_id: int, referrer_id: int, context: ContextTypes
 
         if referrer:
             referrer.referrals += 1
-            message = f"🎉 Тебя пригласил пользователь {referrer_id}!\n"
+            message = f"🎉 Пользователь зашел по приглашению!\n"
             if referrer.referrals >= 3:
                 now = datetime.utcnow()
                 referrer.subscription_until = max(referrer.subscription_until or now, now) + timedelta(days=1)
                 referrer.referrals = 0
-                message += "🎁 Он пригласил 3 друзей и получил 1 день подписки!"
+                message += "🎁 Ты пригласил 3 друзей и получил 1 день подписки!"
             else:
-                message += f"👥 Он пригласил уже {referrer.referrals}/3 друзей."
+                message += f"👥 Ты пригласил уже {referrer.referrals}/3 друзей."
 
             await session.commit()
 
