@@ -121,46 +121,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(RULES_TEXT)
     await update.message.reply_text("Привет, я твоя виртуальная подруга 💋 Напиши мне что-нибудь...")
 
-    # Проверка на реферала
-    args = context.args
-    if args:
+    # Если есть аргумент - вызываем обработчик реферала
+    if context.args:
         try:
-            referrer_id = int(args[0])
-            if referrer_id != user_id:
-                async with AsyncSessionLocal() as session:
-                    referrer = await session.get(User, referrer_id)
-                    new_user = await session.get(User, user_id)
-
-                    if not new_user:
-                        session.add(User(id=user_id))
-
-                    if referrer:
-                        referrer.referrals += 1
-                        message = f"🎉 Тебя пригласил пользователь {referrer_id}!\n"
-                        if referrer.referrals >= 3:
-                            now = datetime.utcnow()
-                            referrer.subscription_until = max(
-                                referrer.subscription_until or now,
-                                now
-                            ) + timedelta(days=1)
-                            referrer.referrals = 0
-                            message += "🎁 Он пригласил 3 друзей и получил 1 день подписки!"
-                        else:
-                            message += f"👥 Он пригласил уже {referrer.referrals}/3 друзей."
-
-                        await session.commit()
-
-                        # Уведомление рефереру
-                        try:
-                            await context.bot.send_message(
-                                chat_id=referrer_id,
-                                text=message
-                            )
-                        except Exception:
-                            pass  # если бот не может написать пользователю — игнорируем
-
+            referrer_id = int(context.args[0])
+            await process_referral(user_id, referrer_id, context)
         except Exception as e:
-            print(f"Ошибка при обработке реферала: {e}")
+            logging.warning(f"Ошибка при обработке реферала: {e}")
 
 
 
@@ -203,6 +170,54 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💬 Осталось сообщений сегодня: *{messages_left}*",
             parse_mode="Markdown"
         )
+
+async def invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    invite_link = f"https://t.me/HotAIGirrl?start={user_id}"
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        count = user.referrals if user else 0
+
+    await update.message.reply_text(
+        f"📨 Приглашай друзей по этой ссылке:\n\n"
+        f"{invite_link}\n\n"
+        f"🎁 За 3 приглашённых ты получаешь 1 день подписки.\n"
+        f"👥 Приглашено: {count}/3"
+    )
+
+
+async def process_referral(user_id: int, referrer_id: int, context: ContextTypes.DEFAULT_TYPE):
+    if user_id == referrer_id:
+        return  # нельзя пригласить самого себя
+
+    async with AsyncSessionLocal() as session:
+        referrer = await session.get(User, referrer_id)
+        new_user = await session.get(User, user_id)
+
+        if new_user:
+            return  # пользователь уже есть, реферал не начисляется
+
+        # создаём нового пользователя
+        session.add(User(id=user_id))
+
+        if referrer:
+            referrer.referrals += 1
+            message = f"🎉 Тебя пригласил пользователь {referrer_id}!\n"
+            if referrer.referrals >= 3:
+                now = datetime.utcnow()
+                referrer.subscription_until = max(referrer.subscription_until or now, now) + timedelta(days=1)
+                referrer.referrals = 0
+                message += "🎁 Он пригласил 3 друзей и получил 1 день подписки!"
+            else:
+                message += f"👥 Он пригласил уже {referrer.referrals}/3 друзей."
+
+            await session.commit()
+
+            # уведомим реферера
+            try:
+                await context.bot.send_message(chat_id=referrer_id, text=message)
+            except Exception:
+                pass
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -309,6 +324,7 @@ async def create_bot():
     bot_app.add_handler(CommandHandler("reset", reset))
     bot_app.add_handler(CommandHandler("donate", donate))
     bot_app.add_handler(CommandHandler("profile", profile))
+    bot_app.add_handler(CommandHandler("invite", invite))
     bot_app.add_handler(CommandHandler("subscribe", subscribe))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
