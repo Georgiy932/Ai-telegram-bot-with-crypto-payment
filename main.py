@@ -228,11 +228,11 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("💵 1 день — $3", callback_data="subscribe_daily")],
-        [InlineKeyboardButton("💵 7 дней — $9", callback_data="subscribe_weekly")],
-        [InlineKeyboardButton("💵 30 дней — $30", callback_data="subscribe_monthly")],
-        [InlineKeyboardButton("💵 365 дней — $50", callback_data="subscribe_yearly")],
+        [InlineKeyboardButton("💸 7 дней — $9", callback_data="subscribe_weekly")],
+        [InlineKeyboardButton("💰 30 дней — $30", callback_data="subscribe_monthly")],
+        [InlineKeyboardButton("🏆 365 дней — $50", callback_data="subscribe_yearly")],
     ]
-    await update.message.reply_text("👉 Выбери план подписки ниже:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("Выбери план подписки👇:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_subscription_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -242,16 +242,32 @@ async def handle_subscription_button(update: Update, context: ContextTypes.DEFAU
     if query.data == "subscribe_daily":
         # Показываем список тарифов
         keyboard = [
-            [InlineKeyboardButton("💵 $3 — 1 день", callback_data="plan_1d")],
-            [InlineKeyboardButton("💸 $12 — 7 дней", callback_data="plan_7d")],
-            [InlineKeyboardButton("💰 $30 — 30 дней", callback_data="plan_30d")],
-            [InlineKeyboardButton("🏆 $50 — 365 дней", callback_data="plan_365d")],
+            [InlineKeyboardButton("💵 1 день — $3", callback_data="plan_1d")],
+            [InlineKeyboardButton("💸 7 дней — $9", callback_data="plan_7d")],
+            [InlineKeyboardButton("💰 30 дней — $30", callback_data="plan_30d")],
+            [InlineKeyboardButton("🏆 365 дней — $50", callback_data="plan_365d")],
         ]
         await query.message.reply_text(
-            "💳 Выбери подходящий план подписки:",
+            "Выбери план подписки👇:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
+
+    elif query.data == "invite_friends":
+        user_id = query.from_user.id
+        invite_link = f"https://t.me/HotAIGirrl_bot?start={user_id}"
+        async with AsyncSessionLocal() as session:
+            user = await session.get(User, user_id)
+            count = user.referrals if user else 0
+
+        await query.message.reply_text(
+            f"📨 Приглашай друзей по этой ссылке:\n\n"
+            f"{invite_link}\n\n"
+            f"🎁 За 3 приглашённых ты получаешь 1 день подписки.\n"
+            f"👥 Приглашено: {count}/3"
+        )
+        return
+
 
     elif query.data.startswith("plan_"):
         duration_map = {
@@ -324,7 +340,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not has_active_subscription and user.messages_today >= 10:
             keyboard = [
                 [InlineKeyboardButton("💳 Купить подписку", callback_data="subscribe_daily")],
-                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день", callback_data="get_invite_link")],
+                [InlineKeyboardButton("🎁 Пригласить 3 друзей и получить 1 день", callback_data="invite_friends")],
             ]
 
             await update.message.reply_text(
