@@ -24,6 +24,8 @@ SUCCESS_URL = os.getenv("SUCCESS_URL")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 MODEL = "deepseek/deepseek-chat-v3-0324"
 
+SPAM_WINDOW = timedelta(seconds=30)   # «окно» в 30 сек.
+SPAM_LIMIT = 5
 
 SYSTEM_PROMPT = (
     "Ты — соблазнительная, страстная, романтичная AI-подруга. "
@@ -92,11 +94,7 @@ async def create_invoice(user_id: int, amount: float, plan_key: str):
     return data["invoice_url"]
 
 # ======================== CHAT API ========================
-async def get_model_response(history, retries: int = 3, backoff_factor: float = 1.0):
-    """
-    Отправляет запрос к OpenRouter с указанной историей чата.
-    При неудаче делает несколько повторных попыток с экспоненциальным бэкоффом.
-    """
+async def get_model_response(history):
     headers = {
         "Authorization": f"Bearer {ROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -107,28 +105,38 @@ async def get_model_response(history, retries: int = 3, backoff_factor: float = 
         "max_tokens": 600,
     }
 
-    timeout = httpx.Timeout(30.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        for attempt in range(1, retries + 1):
-            try:
-                res = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
-                res.raise_for_status()
-                data = res.json()
-                return data["choices"][0]["message"]["content"]
-            except httpx.HTTPStatusError as e:
-                logging.error(f"[OpenRouter] HTTP {e.response.status_code}: {e.response.text}")
-            except Exception as e:
-                logging.error(f"[OpenRouter] ошибка на попытке {attempt}: {e}")
-            # если будут ещё попытки — ждем
-            if attempt < retries:
-                await asyncio.sleep(backoff_factor * (2 ** (attempt - 1)))
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            res = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            # NEW: log status code & full body so you can see OpenRouter’s error message
+            logging.info(f"OpenRouter status: {res.status_code}\nBody: {res.text}")
 
-    # если все попытки не удались
-    return "Упс, не удалось получить ответ после нескольких попыток 😢"
+            res.raise_for_status()
+
+            data = res.json()
+            # NEW: verify the shape before indexing
+            if "choices" not in data or not data["choices"]:
+                logging.error(f"Malformed OpenRouter response: {data}")
+                return "Ошибка: модель вернула неожиданный ответ 😢"
+
+            return data["choices"][0]["message"]["content"]
+
+        except httpx.RequestError as e:
+            logging.error(f"Network error when calling OpenRouter: {e}")
+            return "Сеть недоступна, попробуй чуть‑чуть позже 😢"
+
+        except httpx.HTTPStatusError as e:
+            # already logged res.text above, so just bail
+            return "Модель вернула ошибку 😢"
+
+        except Exception as e:
+            logging.error(f"Unexpected error in get_model_response: {e}")
+            return "Упс, что‑то пошло совсем не так 😢"
+
 
 
 
@@ -336,6 +344,21 @@ async def handle_subscription_button(update: Update, context: ContextTypes.DEFAU
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text
     user_id = update.effective_user.id
+    now = datetime.utcnow()
+
+    # ─── АНТИ-СПАМ ────────────────────────────────────────────────────────────
+    # загружаем список времён прошлых сообщений
+    recent = context.user_data.get("recent_messages", [])
+    # оставляем только те, что в окне SPAM_WINDOW
+    recent = [ts for ts in recent if now - ts < SPAM_WINDOW]
+    if len(recent) >= SPAM_LIMIT:
+        # либо молча игнорим, либо шлём предупреждение
+        return await update.message.reply_text(
+            "⚠ Слишком много сообщений за последний момент — подожди немного."
+        )
+    # добавляем текущее время в историю
+    recent.append(now)
+    context.user_data["recent_messages"] = recent
 
     async with AsyncSessionLocal() as session:
         user = await session.get(User, user_id)
