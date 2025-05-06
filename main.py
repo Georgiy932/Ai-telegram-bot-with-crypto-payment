@@ -92,27 +92,43 @@ async def create_invoice(user_id: int, amount: float, plan_key: str):
     return data["invoice_url"]
 
 # ======================== CHAT API ========================
-async def get_model_response(history):
+async def get_model_response(history, retries: int = 3, backoff_factor: float = 1.0):
+    """
+    Отправляет запрос к OpenRouter с указанной историей чата.
+    При неудаче делает несколько повторных попыток с экспоненциальным бэкоффом.
+    """
     headers = {
         "Authorization": f"Bearer {ROUTER_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
     payload = {
         "model": MODEL,
         "messages": history,
-        "max_tokens": 600
+        "max_tokens": 600,
     }
-    async with httpx.AsyncClient() as client:
-        try:
-            res = await client.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
-            res.raise_for_status()
-            return res.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            logging.error(f"Ошибка запроса к OpenRouter: {e}")
-            return "Упс, произошла ошибка при генерации ответа 😢"
 
-# ======================== БОТ ========================
-logging.basicConfig(level=logging.INFO)
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(1, retries + 1):
+            try:
+                res = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    json=payload,
+                    headers=headers,
+                )
+                res.raise_for_status()
+                data = res.json()
+                return data["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as e:
+                logging.error(f"[OpenRouter] HTTP {e.response.status_code}: {e.response.text}")
+            except Exception as e:
+                logging.error(f"[OpenRouter] ошибка на попытке {attempt}: {e}")
+            # если будут ещё попытки — ждем
+            if attempt < retries:
+                await asyncio.sleep(backoff_factor * (2 ** (attempt - 1)))
+
+    # если все попытки не удались
+    return "Упс, не удалось получить ответ после нескольких попыток 😢"
 
 
 
