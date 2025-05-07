@@ -285,35 +285,16 @@ async def handle_subscription_button(update: Update, context: ContextTypes.DEFAU
     if query.data == "subscribe_daily":
         # Показываем список тарифов
         keyboard = [
-            [InlineKeyboardButton("💵 1 день — $3", callback_data="plan_1d")],
-            [InlineKeyboardButton("💸 7 дней — $9", callback_data="plan_7d")],
-            [InlineKeyboardButton("💰 30 дней — $30", callback_data="plan_30d")],
-            [InlineKeyboardButton("🏆 365 дней — $50", callback_data="plan_365d")],
+            [InlineKeyboardButton("💵 1 день — $3", callback_data="subscribe_daily")],
+            [InlineKeyboardButton("💸 7 дней — $9", callback_data="subscribe_weekly")],
+            [InlineKeyboardButton("💰 30 дней — $30", callback_data="subscribe_monthly")],
+            [InlineKeyboardButton("🏆 365 дней — $50", callback_data="subscribe_yearly")],
         ]
         await query.message.reply_text(
             "Выбери план подписки👇:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
-
-    elif query.data.startswith("plan_"):
-        duration_map = {
-            "plan_1d": ("1 день", 5),
-            "plan_7d": ("7 дней", 12),
-            "plan_30d": ("30 дней", 30),
-            "plan_365d": ("365 дней", 50),
-        }
-        plan_key = query.data
-        label, amount = duration_map.get(plan_key, ("1 день", 5))
-
-        try:
-            invoice_url = await create_invoice(user_id=query.from_user.id, amount=amount, plan_key=plan_key)
-            await query.message.reply_text(
-                f"✅ План: {label}\n💵 Стоимость: ${amount}\n\n"
-                f"🔗 Перейди по ссылке для оплаты:\n{invoice_url}"
-            )
-        except Exception as e:
-            await query.message.reply_text(f"❌ Ошибка при создании платежа: {e}")
 
     query = update.callback_query
     await query.answer()
@@ -427,7 +408,6 @@ async def create_bot():
 
     bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
     bot_app.add_handler(CallbackQueryHandler(subscribe, pattern=r"^show_subscribe$"))
-    bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
     bot_app.add_handler(CallbackQueryHandler(handle_invite_friends, pattern=r"^invite_friends$"))
 
 
