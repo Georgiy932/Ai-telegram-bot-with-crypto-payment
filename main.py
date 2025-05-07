@@ -49,7 +49,7 @@ RULES_TEXT = (
 )
 
 PLANS = {
-    "daily": {"price": 1, "days": 1},
+    "daily": {"price": 2, "days": 1},
     "weekly": {"price": 9, "days": 7},
     "monthly": {"price": 30, "days": 30},
     "yearly": {"price": 50, "days": 365},
@@ -251,7 +251,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("💵 1 день — $1", callback_data="subscribe_daily")],
+        [InlineKeyboardButton("💵 1 день — $2", callback_data="subscribe_daily")],
         [InlineKeyboardButton("💸 7 дней — $9", callback_data="subscribe_weekly")],
         [InlineKeyboardButton("💰 30 дней — $30", callback_data="subscribe_monthly")],
         [InlineKeyboardButton("🏆 365 дней — $50", callback_data="subscribe_yearly")],
