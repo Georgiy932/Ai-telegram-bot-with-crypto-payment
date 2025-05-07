@@ -81,7 +81,7 @@ async def create_invoice(user_id: int, amount: float, plan_key: str):
         "order_description": plan_key,
         "ipn_callback_url": WEBHOOK_URL,
         "success_url": SUCCESS_URL,
-        "pay_currency": "usdt_erc20"
+        "pay_currency": "USDTERC20"
     }
     headers = {
         "x-api-key": NOWPAYMENTS_API_KEY,
