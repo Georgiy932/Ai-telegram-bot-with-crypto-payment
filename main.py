@@ -251,12 +251,13 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("💵 1 день — $3", callback_data="subscribe_daily")],
-        [InlineKeyboardButton("💸 7 дней — $9", callback_data="subscribe_weekly")],
-        [InlineKeyboardButton("💰 30 дней — $30", callback_data="subscribe_monthly")],
-        [InlineKeyboardButton("🏆 365 дней — $50", callback_data="subscribe_yearly")],
+        [InlineKeyboardButton("💵 1 день — $3", callback_data="plan_1d")],
+        [InlineKeyboardButton("💸 7 дней — $9", callback_data="plan_7d")],
+        [InlineKeyboardButton("💰 30 дней — $30", callback_data="plan_30d")],
+        [InlineKeyboardButton("🏆 365 дней — $50", callback_data="plan_365d")],
     ]
     await update.message.reply_text("Выбери план подписки👇:", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 async def handle_invite_friends(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
