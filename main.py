@@ -251,12 +251,16 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("💵 1 день — $3", callback_data="plan_1d")],
-        [InlineKeyboardButton("💸 7 дней — $9", callback_data="plan_7d")],
-        [InlineKeyboardButton("💰 30 дней — $30", callback_data="plan_30d")],
-        [InlineKeyboardButton("🏆 365 дней — $50", callback_data="plan_365d")],
+        [InlineKeyboardButton("💵 1 день — $3", callback_data="subscribe_daily")],
+        [InlineKeyboardButton("💸 7 дней — $9", callback_data="subscribe_weekly")],
+        [InlineKeyboardButton("💰 30 дней — $30", callback_data="subscribe_monthly")],
+        [InlineKeyboardButton("🏆 365 дней — $50", callback_data="subscribe_yearly")],
     ]
-    await update.message.reply_text("Выбери план подписки👇:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(
+        "Выбери план подписки👇:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 
 
 async def handle_invite_friends(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -276,51 +280,37 @@ async def handle_invite_friends(update: Update, context: ContextTypes.DEFAULT_TY
         f"👥 Приглашено: {count}/3"
     )
 
-
 async def handle_subscription_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-
-    if query.data == "subscribe_daily":
-        # Показываем список тарифов
-        keyboard = [
-            [InlineKeyboardButton("💵 1 день — $3", callback_data="subscribe_daily")],
-            [InlineKeyboardButton("💸 7 дней — $9", callback_data="subscribe_weekly")],
-            [InlineKeyboardButton("💰 30 дней — $30", callback_data="subscribe_monthly")],
-            [InlineKeyboardButton("🏆 365 дней — $50", callback_data="subscribe_yearly")],
-        ]
-        await query.message.reply_text(
-            "Выбери план подписки👇:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    query = update.callback_query
-    await query.answer()
-
 
     plan_map = {
-        "subscribe_daily": "daily",
-        "subscribe_weekly": "weekly",
+        "subscribe_daily":   "daily",
+        "subscribe_weekly":  "weekly",
         "subscribe_monthly": "monthly",
-        "subscribe_yearly": "yearly",
+        "subscribe_yearly":  "yearly",
     }
-
     plan_key = plan_map.get(query.data)
-    if not plan_key or plan_key not in PLANS:
-        await query.message.reply_text("Ошибка: выбранный тариф не найден.")
-        return
+    if not plan_key:
+        return await query.message.reply_text("❌ Неизвестный тариф!")
 
     plan = PLANS[plan_key]
+    try:
+        invoice_url = await create_invoice(
+            user_id=query.from_user.id,
+            amount=plan["price"],
+            plan_key=plan_key
+        )
+    except Exception as e:
+        return await query.message.reply_text(f"❌ Ошибка создания платежа: {e}")
 
-    invoice_url = await create_invoice(query.from_user.id, plan["price"], plan_key)
-    keyboard = [[InlineKeyboardButton("💳 Оплатить подписку", url=invoice_url)]]
-
-    await context.bot.send_message(
-        chat_id=query.message.chat_id,
-        text="💰 Нажми на кнопку ниже для оплаты:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+    # Отправляем кнопку оплаты
+    pay_keyboard = [[InlineKeyboardButton("💳 Оплатить подписку", url=invoice_url)]]
+    await query.message.reply_text(
+        f"💵 Вы выбрали *{plan['days']} {'день' if plan['days']==1 else 'дней'}* за ${plan['price']}\n\n"
+        "Нажмите кнопку ниже для оплаты:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(pay_keyboard)
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -406,13 +396,16 @@ async def create_bot():
     bot_app.add_handler(CommandHandler("subscribe", subscribe))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    bot_app.add_handler(CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_"))
-    bot_app.add_handler(CallbackQueryHandler(subscribe, pattern=r"^show_subscribe$"))
-    bot_app.add_handler(CallbackQueryHandler(handle_invite_friends, pattern=r"^invite_friends$"))
+    # Ловим оба префикса: "subscribe_…" и "plan_…"
+    bot_app.add_handler(
+        CallbackQueryHandler(handle_subscription_button, pattern=r"^subscribe_")
+    )
 
 
-
-
+    # Ловим приглашалки
+    bot_app.add_handler(
+        CallbackQueryHandler(handle_invite_friends, pattern=r"^invite_friends$")
+    )
 
     await bot_app.bot.set_my_commands([
         BotCommand("start", "Начать"),
@@ -422,8 +415,8 @@ async def create_bot():
         BotCommand("subscribe", "Подписка"),
         BotCommand("profile", "Профиль"),
     ])
-
     return bot_app
+
 
 # ======================== FASTAPI ========================
 @asynccontextmanager
