@@ -170,32 +170,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    now = datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
         user = await session.get(User, user_id)
-        now = datetime.utcnow()
 
-        if not user:
-            await update.message.reply_text("Ты ещё не начинал со мной... Напиши что-нибудь 💌")
-            return
-
-        if user.last_message_date.date() < now.date():
-            messages_left = 10
-        else:
-            messages_left = max(0, 10 - user.messages_today)
-
-        if user.subscription_until and user.subscription_until > now:
-            sub_text = f"🗓 Подписка активна до {user.subscription_until.strftime('%d.%m.%Y %H:%M')}"
-            messages_left = "∞"
-        else:
-            sub_text = "🔒 Подписка неактивна"
-
-        await update.message.reply_text(
-            f"📊 *Твой профиль:*\n"
-            f"{sub_text}\n"
-            f"💬 Осталось сообщений сегодня: *{messages_left}*",
-            parse_mode="Markdown"
+    if not user:
+        return await update.message.reply_text(
+            "Ты ещё не начинал со мной... Напиши что-нибудь 💌"
         )
+
+    # Сброс счётчика по дате
+    if user.last_message_date.date() < now.date():
+        messages_left = 10
+    else:
+        messages_left = max(0, 10 - user.messages_today)
+
+    # Если подписка жива — бесконечное количество сообщений
+    if user.subscription_until and user.subscription_until > now:
+        sub_text = f"🗓 Подписка активна до {user.subscription_until.strftime('%d.%m.%Y %H:%M')}"
+        messages_left = "∞"
+    else:
+        sub_text = "🔒 Подписка неактивна"
+
+    await update.message.reply_text(
+        f"📊 *Твой профиль:*\n"
+        f"{sub_text}\n"
+        f"💬 Осталось сообщений сегодня: *{messages_left}*",
+        parse_mode="Markdown"
+    )
 
 async def invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -457,36 +460,50 @@ async def telegram_webhook(request: Request):
     await bot_app.update_queue.put(Update.de_json(data, bot_app.bot))
     return {"status": "ok"}
 
+
 @app.post("/nowpayments-webhook")
 async def payment_webhook(request: Request):
     try:
         data = await request.json()
     except Exception as e:
-        logging.error(f"Ошибка парсинга JSON: {e}")
+        logging.error(f"❌ Ошибка парсинга JSON в NowPayments webhook: {e}")
         return {"status": "invalid json"}
 
+    # Логируем приходящий запрос
+    logging.info(f"🏦 NowPayments IPN: {data}")
+
     if data.get("payment_status") == "finished":
-        user_id = int(data.get("order_id"))
-        plan_key = data.get("order_description", "")
-        days = PLANS.get(plan_key, {}).get("days", 0)
-        days = {
-            "daily": 1,
-            "weekly": 7,
-            "monthly": 30,
-            "yearly": 365
-        }.get(plan_key, 0)
+        try:
+            user_id = int(data["order_id"])
+            plan_key = data.get("order_description", "")
+            days = PLANS.get(plan_key, {}).get("days", 0)
+            now = datetime.utcnow()
 
-        async with AsyncSessionLocal() as session:
-            user = await session.get(User, user_id)
-            if not user:
-                user = User(id=user_id)
+            async with AsyncSessionLocal() as session:
+                user = await session.get(User, user_id)
+                if not user:
+                    user = User(id=user_id)
 
-            user.subscription_until = datetime.utcnow() + timedelta(days=days)
-            session.add(user)
-            await session.commit()
+                # Накатываем дни к текущей подписке, если она ещё действующая
+                if user.subscription_until and user.subscription_until > now:
+                    user.subscription_until += timedelta(days=days)
+                else:
+                    user.subscription_until = now + timedelta(days=days)
+
+                session.add(user)
+                await session.commit()
+
+                logging.info(
+                    f"✅ Подписка обновлена для {user_id}: до {user.subscription_until}"
+                )
+
+        except Exception as e:
+            logging.error(f"❌ Ошибка при обработке данных NowPayments: {e}")
+
+    else:
+        logging.info(f"⏭ Пропускаем IPN с payment_status={data.get('payment_status')}")
 
     return {"status": "ok"}
-
 
 
 
