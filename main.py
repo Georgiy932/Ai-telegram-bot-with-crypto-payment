@@ -13,13 +13,15 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 import os
 
+
 load_dotenv()  # Загружает переменные из .env файла
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ROUTER_API_KEY = os.getenv("ROUTER_API_KEY")
 NOWPAYMENTS_API_KEY = os.getenv("NOWPAYMENTS_API_KEY")
 NOWPAYMENTS_API_URL = os.getenv("NOWPAYMENTS_API_URL")
 DB_URL = os.getenv("DB_URL")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL")
+NOWPAYMENTS_WEBHOOK_URL = os.getenv("NOWPAYMENTS_WEBHOOK_URL")
 SUCCESS_URL = os.getenv("SUCCESS_URL")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 MODEL = "deepseek/deepseek-chat-v3-0324"
@@ -79,7 +81,7 @@ async def create_invoice(user_id: int, amount: float, plan_key: str):
         "price_currency": "usd",
         "order_id": str(user_id),
         "order_description": plan_key,
-        "ipn_callback_url": WEBHOOK_URL,
+        "ipn_callback_url": NOWPAYMENTS_WEBHOOK_URL,
         "success_url": SUCCESS_URL,
         "pay_currency": "USDTOP"
     }
@@ -432,7 +434,7 @@ async def lifespan(app: FastAPI):
 
     await bot_app.initialize()
     await bot_app.start()
-    await bot_app.bot.set_webhook(WEBHOOK_URL)
+    await bot_app.bot.set_webhook(TELEGRAM_WEBHOOK_URL)
 
     print("✅ Бот запущен!")
 
