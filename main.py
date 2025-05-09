@@ -83,7 +83,8 @@ async def create_invoice(user_id: int, amount: float, plan_key: str):
         "order_description": plan_key,
         "ipn_callback_url": NOWPAYMENTS_WEBHOOK_URL,
         "success_url": SUCCESS_URL,
-        "pay_currency": "USDTOP"
+        "pay_currency": "USDTOP",
+        "test": True
     }
     headers = {
         "x-api-key": NOWPAYMENTS_API_KEY,
@@ -174,9 +175,10 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     now = datetime.utcnow()
 
+
     async with AsyncSessionLocal() as session:
         user = await session.get(User, user_id)
-
+    logging.info(f"Проверка profile: subscription_until={user.subscription_until!r}")
     if not user:
         return await update.message.reply_text(
             "Ты ещё не начинал со мной... Напиши что-нибудь 💌"
@@ -467,6 +469,7 @@ async def telegram_webhook(request: Request):
 async def payment_webhook(request: Request):
     try:
         data = await request.json()
+        logging.info("▶▶▶ NowPayments IPN received: " + json.dumps(data, ensure_ascii=False))
     except Exception as e:
         logging.error(f"❌ Ошибка парсинга JSON в NowPayments webhook: {e}")
         return {"status": "invalid json"}
