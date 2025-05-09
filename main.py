@@ -84,7 +84,6 @@ async def create_invoice(user_id: int, amount: float, plan_key: str):
         "ipn_callback_url": NOWPAYMENTS_WEBHOOK_URL,
         "success_url": SUCCESS_URL,
         "pay_currency": "USDTOP",
-        "test": True
     }
     headers = {
         "x-api-key": NOWPAYMENTS_API_KEY,
