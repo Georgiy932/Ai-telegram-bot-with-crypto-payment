@@ -181,7 +181,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"Проверка profile: subscription_until={user.subscription_until!r}")
     if not user:
         return await update.message.reply_text(
-            "Ты ещё не начинал со мной... Напиши что-нибудь 💌"
+            "Ты ещё не начинал со мной.... Напиши что-нибудь 💌"
         )
 
     # Сброс счётчика по дате
