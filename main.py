@@ -159,7 +159,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     await update.message.reply_text(RULES_TEXT)
-    await update.message.reply_text("Привет, я твоя виртуальная подруга 💋 Напиши мне что-нибудь...")
+    await update.message.reply_text("Привет, я твоя виртуальная подруга. Напиши мне что-нибудь...")
 
     # Если есть аргумент - вызываем обработчик реферала
     if context.args:
