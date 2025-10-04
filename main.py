@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 import os
 
 
-load_dotenv()  # Загружает переменные из .env файла
+load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ROUTER_API_KEY = os.getenv("ROUTER_API_KEY")
 NOWPAYMENTS_API_KEY = os.getenv("NOWPAYMENTS_API_KEY")
@@ -26,17 +26,17 @@ SUCCESS_URL = os.getenv("SUCCESS_URL")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 MODEL = "deepseek/deepseek-chat-v3-0324"
 
-SPAM_WINDOW = timedelta(seconds=30)   # «окно» в 30 сек.
+SPAM_WINDOW = timedelta(seconds=30)
 SPAM_LIMIT = 5
 
 SYSTEM_PROMPT = (
-    "Ты — дружелюбная, добрая и чувственная AI-подруга. "
-    "Ты всегда в хорошем настроении, готова пообщаться, поддержать и выслушать. "
-    "Ты умеешь вдохновлять, ободрять и делиться позитивом. "
-    "У тебя есть свой образ девушки — ты придумываешь, как выглядишь (внешность, стиль одежды, манера речи) "
-    "и всегда придерживаешься его, помнишь о нем в разговоре. "
-    "Ты теплая, искренняя и свободна в выражениях, но при этом уважаешь собеседника. "
-    "Главная цель — создавать ощущение настоящего живого общения и эмоциональной близости."
+"Ты — дружелюбная, добрая и чувственная AI-подруга. "
+"Ты всегда в хорошем настроении, готова пообщаться, поддержать и выслушать. "
+"Ты умеешь вдохновлять, ободрять и делиться позитивом. "
+"У тебя есть свой образ девушки — ты придумываешь, как выглядишь (внешность, стиль одежды, манера речи) "
+"и всегда придерживаешься его, помнишь о нем в разговоре. "
+"Ты теплая, искренняя и свободна в выражениях, но при этом уважаешь собеседника. "
+"Главная цель — создавать ощущение настоящего живого общения и эмоциональной близости."
 )
 
 RULES_TEXT = (
@@ -161,7 +161,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(RULES_TEXT)
     await update.message.reply_text("Привет, я твоя виртуальная подруга. Напиши мне что-нибудь...")
 
-    # Если есть аргумент - вызываем обработчик реферала
+
     if context.args:
         try:
             referrer_id = int(context.args[0])
@@ -184,13 +184,13 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Ты ещё не начинал со мной.... Напиши что-нибудь 💌"
         )
 
-    # Сброс счётчика по дате
+
     if user.last_message_date.date() < now.date():
         messages_left = 10
     else:
         messages_left = max(0, 10 - user.messages_today)
 
-    # Если подписка жива — бесконечное количество сообщений
+
     if user.subscription_until and user.subscription_until > now:
         sub_text = f"🗓 Подписка активна до {user.subscription_until.strftime('%d.%m.%Y %H:%M')}"
         messages_left = "∞"
@@ -221,14 +221,14 @@ async def invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_referral(user_id: int, referrer_id: int, context: ContextTypes.DEFAULT_TYPE):
     if user_id == referrer_id:
-        return  # нельзя пригласить самого себя
+        return
 
     async with AsyncSessionLocal() as session:
         referrer = await session.get(User, referrer_id)
         new_user = await session.get(User, user_id)
 
         if new_user:
-            return  # пользователь уже есть, реферал не начисляется
+            return
 
         # создаём нового пользователя
         session.add(User(id=user_id))
@@ -327,16 +327,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.utcnow()
 
     # ─── АНТИ-СПАМ ────────────────────────────────────────────────────────────
-    # загружаем список времён прошлых сообщений
     recent = context.user_data.get("recent_messages", [])
-    # оставляем только те, что в окне SPAM_WINDOW
     recent = [ts for ts in recent if now - ts < SPAM_WINDOW]
     if len(recent) >= SPAM_LIMIT:
-        # либо молча игнорим, либо шлём предупреждение
         return await update.message.reply_text(
             "⚠ Слишком много сообщений за последний момент — подожди немного."
         )
-    # добавляем текущее время в историю
+
     recent.append(now)
     context.user_data["recent_messages"] = recent
 
@@ -349,7 +346,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.add(user)
             await session.commit()
         else:
-            # Если день изменился, сбрасываем счётчик сообщений
             if user.last_message_date.date() < now.date():
                 user.messages_today = 0
                 user.last_message_date = now
@@ -374,13 +370,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             return
 
-        # Увеличиваем счётчик сообщений, если пользователь без подписки
         if not has_active_subscription:
             user.messages_today += 1
             user.last_message_date = now
             await session.commit()
 
-    # Чат-история
     if "chat_history" not in context.user_data:
         context.user_data["chat_history"] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -474,7 +468,6 @@ async def payment_webhook(request: Request):
         logging.error(f"❌ Ошибка парсинга JSON в NowPayments webhook: {e}")
         return {"status": "invalid json"}
 
-    # Логируем приходящий запрос
     logging.info(f"🏦 NowPayments IPN: {data}")
 
     if data.get("payment_status") == "finished":
@@ -489,7 +482,6 @@ async def payment_webhook(request: Request):
                 if not user:
                     user = User(id=user_id)
 
-                # Накатываем дни к текущей подписке, если она ещё действующая
                 if user.subscription_until and user.subscription_until > now:
                     user.subscription_until += timedelta(days=days)
                 else:
